@@ -8,6 +8,9 @@ pub const PLAYER_SPEED: f32 = 500.0;
 pub const NUMBER_OF_ENEMIES: usize = 4;
 pub const ENEMY_SIZE: f32 = 64.0; // enemy sprite size
 pub const ENEMY_SPEED: f32 = 200.0;
+pub const NUMBER_OF_STARS: usize = 10;
+pub const STAR_SIZE: f32 = 30.0; // star sprite size
+pub const STAR_SPAWN_TIME: f32 = 1.0;
 
 fn main() {
     env::set_var("WGPU_BACKEND", "dx12");
@@ -24,14 +27,21 @@ fn main() {
                 },
             },
         ))
+        .init_resource::<Score>()
+        .init_resource::<StarSpawnTimer>()
         .add_systems(Startup, spawn_camera)
         .add_systems(Startup, spawn_player)
         .add_systems(Startup, spawn_enemies)
+        .add_systems(Startup, spawn_star)
         .add_systems(Update, player_movement)
         .add_systems(Update, confine_player_movement)
         .add_systems(Update, (enemy_movement, update_enemy_direction).chain())
         .add_systems(Update, confine_enemy_movement)
         .add_systems(Update, enemy_hit_player)
+        .add_systems(Update, player_hit_star)
+        .add_systems(Update, update_score)
+        .add_systems(Update, tick_star_spawn_timer)
+        .add_systems(Update, spawn_stars_overtime)
         .run();
 }
 
@@ -253,5 +263,110 @@ pub fn enemy_hit_player(
                 commands.entity(player_entity).despawn();
             }
         }
+    }
+}
+
+#[derive(Component)]
+pub struct Star {}
+
+pub fn spawn_star(
+    mut commands: Commands,
+    window_query: Query<&Window, With<PrimaryWindow>>,
+    asset_server: Res<AssetServer>,
+) {
+    let window = window_query.get_single().unwrap();
+
+    for _ in 0..NUMBER_OF_STARS {
+        let rx = rand::random::<f32>() * window.width();
+        let ry = rand::random::<f32>() * window.height();
+        commands.spawn((
+            SpriteBundle {
+                transform: Transform::from_xyz(rx, ry, 0.0),
+                texture: asset_server.load("sprites/star.png"),
+                ..default()
+            },
+            Star {},
+        ));
+    }
+}
+
+pub fn player_hit_star(
+    mut commands: Commands,
+    player_query: Query<&Transform, With<Player>>,
+    star_query: Query<(Entity, &Transform), With<Star>>,
+    asset_server: Res<AssetServer>,
+    mut score: ResMut<Score>,
+) {
+    if let Ok(player_transform) = player_query.get_single() {
+        for (star_entity, star_transform) in star_query.iter() {
+            let distance = player_transform
+                .translation
+                .distance(star_transform.translation);
+            if distance <= PLAYER_SIZE / 2.0 + STAR_SIZE / 2.0 {
+                println!("Player hit star!");
+                score.value += 1;
+                commands.spawn(AudioBundle {
+                    source: asset_server.load("audio/sci-fi/laserLarge_000.ogg"),
+                    ..default()
+                });
+                commands.entity(star_entity).despawn();
+            }
+        }
+    }
+}
+
+#[derive(Resource)]
+pub struct Score {
+    pub value: u32,
+}
+
+impl Default for Score {
+    fn default() -> Score {
+        Score { value: 0 }
+    }
+}
+
+pub fn update_score(score: Res<Score>) {
+    if score.is_changed() {
+        println!("Score: {}", score.value);
+    }
+}
+
+#[derive(Resource)]
+pub struct StarSpawnTimer {
+    pub timer: Timer,
+}
+
+impl Default for StarSpawnTimer {
+    fn default() -> StarSpawnTimer {
+        StarSpawnTimer {
+            timer: Timer::from_seconds(STAR_SPAWN_TIME, TimerMode::Repeating),
+        }
+    }
+}
+
+pub fn tick_star_spawn_timer(mut star_spawn_timer: ResMut<StarSpawnTimer>, time: Res<Time>) {
+    star_spawn_timer.timer.tick(time.delta());
+}
+
+pub fn spawn_stars_overtime(
+    mut commands: Commands,
+    window_query: Query<&Window, With<PrimaryWindow>>,
+    asset_server: Res<AssetServer>,
+    star_spawn_timer: ResMut<StarSpawnTimer>,
+) {
+    if star_spawn_timer.timer.finished() {
+        let window = window_query.single();
+        let rx = random::<f32>() * window.width();
+        let ry = random::<f32>() * window.height();
+
+        commands.spawn((
+            Star {},
+            SpriteBundle {
+                transform: Transform::from_xyz(rx, ry, 0.0),
+                texture: asset_server.load("sprites/star.png"),
+                ..default()
+            },
+        ));
     }
 }
