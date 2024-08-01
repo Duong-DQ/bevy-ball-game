@@ -7,7 +7,7 @@ pub const PLAYER_SIZE: f32 = 64.0; // player sprite size
 pub const PLAYER_SPEED: f32 = 500.0;
 pub const NUMBER_OF_ENEMIES: usize = 4;
 pub const ENEMY_SIZE: f32 = 64.0; // enemy sprite size
-pub const ENEMY_SPEED: f32 = 2000.0;
+pub const ENEMY_SPEED: f32 = 200.0;
 
 fn main() {
     env::set_var("WGPU_BACKEND", "dx12");
@@ -30,8 +30,8 @@ fn main() {
         .add_systems(Update, player_movement)
         .add_systems(Update, confine_player_movement)
         .add_systems(Update, (enemy_movement, update_enemy_direction).chain())
-        // .add_systems(Update, update_enemy_direction)
         .add_systems(Update, confine_enemy_movement)
+        .add_systems(Update, enemy_hit_player)
         .run();
 }
 
@@ -228,5 +228,30 @@ pub fn confine_enemy_movement(
         }
 
         enemy_tranform.translation = translation;
+    }
+}
+
+pub fn enemy_hit_player(
+    mut commands: Commands,
+    mut player_query: Query<(Entity, &Transform), With<Player>>,
+    enemy_query: Query<&Transform, With<Enemy>>,
+    asset_server: Res<AssetServer>,
+) {
+    if let Ok((player_entity, player_transform)) = player_query.get_single_mut() {
+        for enemy_transform in enemy_query.iter() {
+            let distance = player_transform
+                .translation
+                .distance(enemy_transform.translation);
+            let player_radius = PLAYER_SIZE / 2.0;
+            let enemy_radius = ENEMY_SIZE / 2.0;
+            if distance <= player_radius + enemy_radius {
+                println!("Player hit! GAME OVER!!");
+                commands.spawn(AudioBundle {
+                    source: asset_server.load("audio/sci-fi/explosionCrunch_000.ogg"),
+                    ..default()
+                });
+                commands.entity(player_entity).despawn();
+            }
+        }
     }
 }
